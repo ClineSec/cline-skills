@@ -36,6 +36,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -121,17 +122,19 @@ SEVERITY_MATRIX = {
 }
 THREAT_STATUS = ("open", "partly-mitigated", "mitigated")
 THREAT_STATUS_LABEL = {"open": "Open", "partly-mitigated": "Partly mitigated", "mitigated": "Mitigated"}
-MITIGATION_STATUS = ("running", "in-code", "documented", "not-found", "could-not-check")
+MITIGATION_STATUS = ("running", "in-code", "documented", "not-found", "could-not-check", "not-attempted")
+# A configuration read shows what is set, not what a request would meet, so "running" isn't described as behavior.
 MITIGATION_LABEL = {
-    "running": "Seen running", "in-code": "Seen in code, not seen running", "documented": "Only documented",
-    "not-found": "Looked for, not found", "could-not-check": "Could not check",
+    "running": "Seen in live configuration", "in-code": "Seen in code, not confirmed live", "documented": "Only documented",
+    "not-found": "Looked for, not found", "could-not-check": "Could not check", "not-attempted": "Did not attempt",
 }
 # Accepting a risk is a person's decision, so it isn't offered here. The signer records it in the register.
 RESPONSES = ("mitigate", "eliminate", "transfer")
 OBJECTIVES = ("confidentiality", "integrity", "availability")
 TRUST_LEVELS = ("low", "medium", "high")
 UNKNOWN_STATUS = ("open", "answered")
-DECISIONS = ("approved", "declined")
+DECISIONS = ("approved", "declined", "not-asked")
+DECISION_LABEL = {"approved": "Approved", "declined": "Declined", "not-asked": "Not asked, and not done: the run was unattended"}
 LLM_KEYS = ("untrusted_text_into_prompts", "where_model_output_goes", "what_tools_can_do")
 LLM_LABEL = {
     "untrusted_text_into_prompts": "Where does untrusted text enter a prompt?",
@@ -156,26 +159,26 @@ MAX_TOP_RISKS = 5
 # Reports get read when they say things once. These limits make the agent choose, and they cap words, not facts.
 MAX_THREATS = 30
 MAX_TITLE_CHARS = 120
+MAX_SOURCE_NAME_CHARS = 40
 MAX_TEXT_CHARS = 300
 MAX_PART_CHARS = {"source": 100, "prerequisites": 120, "action": 200, "consequence": 200}
 MAX_SUMMARY_CHARS = 800
 MAX_EVIDENCE_PER_ITEM = 3
 MAX_HISTORY_COMMITS = 5000
 MAX_INLINE_QUOTE_CHARS = 160
-# Open Threat Model requires numbers. These are fixed bands, not measurements.
 ID_IN_PROSE = re.compile(r"[A-Z]{1,3}-?\d+")
 OTM_VERSION = "0.2.0"
+# Open Threat Model requires numbers. These are fixed bands, not measurements.
 OTM_SCORE = {"critical": 100, "high": 75, "medium": 50, "low": 25}
 OTM_TRUST = {"low": 10, "medium": 50, "high": 90}
-OTM_REDUCTION = {"running": 50, "in-code": 25, "documented": 0, "not-found": 0, "could-not-check": 0}
 
 OUTPUT_NAMES = {"manifest.json", "snapshots", "files", "threat-model.json", "diagram.mmd", "threat-model.md", "threat-model.otm.json"}
 TOP_KEYS = {"target", "intake", "system", "summary", "sources", "confirmations", "zones", "components", "flows", "assets",
             "actors", "calibration", "threats", "boundary_reviews", "llm_questions", "conflicts", "unknowns", "steering",
             "dismissed_leads", "stride_coverage", "backtest", "architecture_check", "not_checked"}
-INTAKE_KEYS = {"started_from", "stage", "gaps"}
+INTAKE_KEYS = {"started_from", "stage", "gaps", "unattended"}
 SYSTEM_KEYS = {"what_it_does", "worth_protecting"}
-SOURCE_KEYS = {"id", "name", "kind", "status", "read", "repo", "observed", "note"}
+SOURCE_KEYS = {"id", "name", "kind", "status", "read", "repo", "observed", "note", "link"}
 CONFIRMATION_KEYS = {"action", "why_risky", "decision"}
 ZONE_KEYS = {"id", "name", "trust", "trust_level"}
 COMPONENT_KEYS = {"id", "name", "type", "zone", "basis", "sources", "reasoning", "unknown", "metadata", "no_open_threats", "not_assessed"}
@@ -185,7 +188,7 @@ ACTOR_KEYS = {"name", "can", "cannot"}
 THREAT_KEYS = {"id", "title", "stride", "components", "flows", "assets", "source", "prerequisites", "action", "consequence",
                "likelihood", "impact", "rating_reason", "status", "evidence", "mitigations", "response", "recommendation",
                "detection", "references", "depends_on", "policy_route", "claimed_acceptance"}
-MITIGATION_KEYS = {"control", "status", "evidence", "looked_in", "note"}
+MITIGATION_KEYS = {"control", "status", "evidence", "looked_in", "note", "tried"}
 EVIDENCE_KEYS = {"source", "file", "line", "quote", "credential", "locator", "observed"}
 UNKNOWN_KEYS = {"id", "question", "assumed", "who_can_answer", "status", "answer", "affects"}
 CONFLICT_KEYS = {"about", "sides", "believed", "why_it_matters", "threats"}
@@ -1168,7 +1171,7 @@ def build_diagram(data: dict[str, Any]) -> str:
         lines.append(f"  class {nodes[item['id']]} {component_tier(item, threats)}")
         if item["basis"] != "observed":
             lines.append(f"  class {nodes[item['id']]} unverified")
-    lines.append('  subgraph legend["Legend"]')
+    lines.append('  subgraph legend["Legend: fill is the worst open threat, and threats can span components"]')
     entries = [*TIER_LABEL.items(), ("unverified", "Dashed: documented, inferred, or assumed")]
     lines += [f'    key{index}["{mermaid_text(text)}"]' for index, (_name, text) in enumerate(entries, 1)]
     lines.append("  end")
@@ -1188,7 +1191,7 @@ def component_label(component: dict[str, Any], threats: list[Any]) -> str:
     if tier in RANK:
         count = sum(1 for threat in threats if isinstance(threat, dict) and threat.get("status") != "mitigated"
                     and component["id"] in (threat.get("components") or []))
-        parts.append(f"{tier.upper()}: {count} open")
+        parts.append(f"Worst: {tier.upper()}; {count} open")
     return "<br/>".join(parts)
 
 
@@ -1376,12 +1379,16 @@ def validate(data: Any, manifest: dict[str, Any], out: Path) -> list[str]:
             problems.append(f"{key} must be a list.")
     if problems:
         return problems
-    if keys_problem(data["intake"], INTAKE_KEYS, INTAKE_KEYS, "intake", problems):
+    if keys_problem(data["intake"], INTAKE_KEYS, {"started_from", "stage", "gaps"}, "intake", problems):
         text_problem(data["intake"].get("started_from"), "intake started_from", problems)
         if data["intake"].get("stage") not in STAGES:
             problems.append(f"intake: stage must be one of {', '.join(STAGES)}.")
         if data["intake"].get("gaps") not in GAPS:
             problems.append(f"intake: gaps must be one of {', '.join(GAPS)}.")
+        if not isinstance(data["intake"].get("unattended", False), bool):
+            problems.append("intake: unattended must be true or false.")
+        if data["intake"].get("unattended") and data["intake"].get("gaps") == "interview":
+            problems.append("intake: an unattended run has nobody to interview, so gaps must be best-effort.")
     if keys_problem(data["system"], SYSTEM_KEYS, SYSTEM_KEYS, "system", problems):
         for key in sorted(SYSTEM_KEYS):
             text_problem(data["system"].get(key), f"system {key}", problems)
@@ -1399,6 +1406,8 @@ def validate(data: Any, manifest: dict[str, Any], out: Path) -> list[str]:
             check.text(item.get("why_risky"), f"{label} why_risky")
             if item.get("decision") not in DECISIONS:
                 problems.append(f"{label}: decision must be one of {', '.join(DECISIONS)}.")
+            if item.get("decision") == "not-asked" and not (isinstance(data["intake"], dict) and data["intake"].get("unattended")):
+                problems.append(f"{label}: not-asked is only for an unattended run. Otherwise ask, and record the answer.")
     check_system_model(data, check)
     check_threats(data, check, manifest)
     check_llm(data["llm_questions"], check)
@@ -1423,6 +1432,11 @@ def check_sources(check: Checker, manifest: dict[str, Any]) -> None:
         if not keys_problem(item, SOURCE_KEYS, {"id", "name", "kind", "status"}, label, check.problems):
             continue
         check.text(item.get("name"), f"{label} name")
+        if isinstance(item.get("name"), str) and len(item["name"]) > MAX_SOURCE_NAME_CHARS:
+            check.problems.append(f"{label}: name is over the limit of {MAX_SOURCE_NAME_CHARS} characters. It repeats throughout the report, so put commits and counts in read.")
+        link = item.get("link")
+        if link is not None and not (item.get("kind") == "repo" and isinstance(link, str) and link.startswith("https://") and "{file}" in link):
+            check.problems.append(f"{label}: link is for a repo source, and must be an https address containing {{file}}, with {{line}} if the host supports it.")
         if item.get("kind") not in SOURCE_KINDS:
             check.problems.append(f"{label}: kind must be one of {', '.join(SOURCE_KINDS)}.")
         if item.get("status") not in SOURCE_STATUS:
@@ -1599,7 +1613,12 @@ def check_mitigation(item: Any, label: str, check: Checker) -> str | None:
         for value in looked:
             check.source_used(value, f"{label} looked_in")
     if status == "could-not-check":
+        check.text(item.get("tried"), f"{label} tried")
         check.text(item.get("note"), f"{label} note")
+    if status == "not-attempted":
+        check.text(item.get("note"), f"{label} note")
+    if status not in ("could-not-check",) and "tried" in item:
+        problems.append(f"{label}: tried is only for could-not-check.")
     return status
 
 
@@ -1743,7 +1762,8 @@ def natural(value: str) -> list[Any]:
 
 
 def ranked_threats(threats: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(threats, key=lambda item: (item["status"] == "mitigated", RANK[severity_of(item)], THREAT_STATUS.index(item["status"]), natural(item["id"])))  # type: ignore[index]
+    return sorted(threats, key=lambda item: (item["status"] == "mitigated", RANK[severity_of(item)], RANK[item["impact"]], LIKELIHOODS.index(item["likelihood"]),  # type: ignore[index]
+                                             THREAT_STATUS.index(item["status"]), natural(item["id"])))
 
 
 def indented(lines: list[str]) -> list[str]:
@@ -1757,12 +1777,21 @@ def unchecked_tag(item: dict[str, Any], source: dict[str, Any]) -> str:
     return "unchecked"
 
 
+def repo_place(item: dict[str, Any], source: dict[str, Any]) -> str:
+    """A repository location, linked when the source says how to link to it."""
+    path, line = original_path(item["file"]), item["line"]
+    text = code(f"{source['repo']}:{path}:{line}")
+    if not source.get("link"):
+        return text
+    return f"[{text}]({source['link'].replace('{file}', urllib.parse.quote(path, safe='/')).replace('{line}', str(line))})"
+
+
 def evidence_lines(item: dict[str, Any], sources: dict[str, dict[str, Any]]) -> list[str]:
     """One line where the evidence fits on one. The label says whether the helper could check it."""
     source = sources[item["source"]]
     quote = item.get("quote") or ""
     if source["kind"] == "repo":
-        where = code(f"{source['repo']}:{original_path(item['file'])}:{item['line']}")
+        where = repo_place(item, source)
         if item.get("credential") and not quote:
             return [f"- {where} (checked): a credential, value withheld"]
         tag = "checked"
@@ -1780,7 +1809,7 @@ def evidence_place(item: dict[str, Any], sources: dict[str, dict[str, Any]], nam
     """Where a claim's evidence is, for sections that restate it in words. The quote stays in threat-model.json."""
     source = sources[item["source"]]
     if source["kind"] == "repo":
-        return f"{code(source['repo'] + ':' + original_path(item['file']) + ':' + str(item['line']))} (checked)"
+        return f"{repo_place(item, source)} (checked)"
     name = f"{inline(source['name'])}, " if named else ""
     return f"{name}{code(item['locator'])} ({unchecked_tag(item, source)})"
 
@@ -1806,7 +1835,7 @@ def repo_described(name: str, entry: dict[str, Any]) -> str:
 # Fields holding ids or copied text. Everything else is the agent's prose.
 NOT_PROSE = {"id", "from", "to", "zone", "sources", "components", "flows", "assets", "where", "depends_on", "threats", "unknown",
              "leads", "looked_in", "flow", "quote", "file", "locator", "line", "observed", "stride", "status", "type", "basis",
-             "likelihood", "impact", "response", "decision", "kind", "repo", "policy_route", "references"}
+             "likelihood", "impact", "response", "decision", "kind", "repo", "policy_route", "references", "link"}
 
 
 def prose_values(value: Any, key: str, source_ids: set[str]) -> Iterator[str]:
@@ -1895,6 +1924,8 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
     lines.append(f"| Modeled | {STAGE_LABEL[data['intake']['stage']]} |")
     lines.append(f"| Started from | {inline(data['intake']['started_from'])} |")
     lines.append(f"| Gaps | {GAPS_LABEL[data['intake']['gaps']]} |")
+    if data["intake"].get("unattended"):
+        lines.append("| Run | Unattended: nobody was asked or contacted while it ran |")
     for name, entry in sorted(repos.items()):
         lines.append(f"| Repository | {repo_described(name, entry)}, snapshot SHA-256 {code(entry['snapshot_sha256'])} |")
     if any(entry["inside_target"] for entry in repos.values()):
@@ -1913,7 +1944,10 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
     lines += ["**Top risks:**", ""]
     lines += [f"{number}. {threat_label[item['id']]} [{severity_of(item).upper()}] {inline(item['title'])}" for number, item in enumerate(top, 1)] or ["None open."]  # type: ignore[union-attr]
     claims = [*data["components"], *data["flows"], *data["assets"]]
-    basis_counts = ", ".join(f"{sum(1 for item in claims if item['basis'] == name)} {name}" for name in BASES)
+    observed = [item for item in claims if item["basis"] == "observed"]
+    seen_live = sum(1 for item in observed if any(sources[value]["kind"] == "live" for value in item.get("sources", [])))
+    basis_counts = ", ".join([f"{len(observed)} observed ({seen_live} in a live system, {len(observed) - seen_live} only in code or other sources)",
+                              *(f"{sum(1 for item in claims if item['basis'] == name)} {name}" for name in BASES[1:])])
     open_unknowns = sum(1 for item in unknowns if item["status"] == "open")
     lines += ["", f"**How this model is known:** {basis_counts}. {open_unknowns} open question(s)."]
 
@@ -1926,8 +1960,8 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
     if not live:
         lines += ["", "**No live system was examined.** Everything here describes code or documents, not what is deployed."]
     if data["confirmations"]:
-        lines += ["", "**Asked before acting:**", "", "| Action | Why it was risky | Decision |", "| --- | --- | --- |"]
-        lines += [f"| {inline(item['action'])} | {inline(item['why_risky'])} | {item['decision'].capitalize()} |" for item in data["confirmations"]]
+        lines += ["", "**Risky actions raised:**", "", "| Action | Why it was risky | Decision |", "| --- | --- | --- |"]
+        lines += [f"| {inline(item['action'])} | {inline(item['why_risky'])} | {DECISION_LABEL[item['decision']]} |" for item in data["confirmations"]]
 
     lines += ["", "## Architecture", "", "```mermaid", diagram.rstrip("\n"), "```", "",
               "| Component | Type | Zone | How it's known |", "| --- | --- | --- | --- |"]
@@ -1941,10 +1975,14 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
     flow_label = {item["id"]: f"F-{number:02d}" for number, item in enumerate(crossing, 1)}
     lines += ["", "**Flows crossing a trust boundary:**", ""]
     if crossing:
-        lines += ["| | Flow | Carries | Channel | Guarantees | How it's known |", "| --- | --- | --- | --- | --- | --- |"]
+        # A column nobody filled in says nothing, and "None" would read as a finding.
+        optional = [(key, name) for key, name in (("channel", "Channel"), ("guarantees", "Guarantees")) if any(item.get(key) for item in crossing)]
+        headers = ["", "Flow", "Carries", *(name for _key, name in optional), "How it's known"]
+        lines += [f"| {' | '.join(headers)} |".replace("|  |", "| |"), "| " + " | ".join("---" for _header in headers) + " |"]
         for item in crossing:
-            lines.append(f"| {flow_label[item['id']]} | {inline(components[item['from']]['name'])} to {inline(components[item['to']]['name'])} | {inline(item.get('label') or 'Not stated')} "
-                         f"| {inline(item.get('channel') or 'Not stated')} | {inline(item.get('guarantees') or 'None stated')} | {basis_note(item, sources, unknown_label)} |")
+            cells = [flow_label[item["id"]], f"{inline(components[item['from']]['name'])} to {inline(components[item['to']]['name'])}", inline(item.get("label") or "Not stated"),
+                     *(inline(item.get(key) or "Not stated") for key, _name in optional), basis_note(item, sources, unknown_label)]
+            lines.append(f"| {' | '.join(cells)} |")
     else:
         lines.append("None.")
 
@@ -1963,12 +2001,12 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
     lines += [f"| {name} | {inline(data['calibration'][name])} |" for name in SEVERITIES]
     lines.append("")
     if threats:
-        lines += ["| Id | Threat | Rating | Status | Response | Decision |", "| --- | --- | --- | --- | --- | --- |"]
+        lines += ["| Id | Threat | Rating | Impact | Likelihood | Status | Response | Decision |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
         for item in threats:
             response = item["response"].capitalize() if item.get("response") else "None needed"
-            lines.append(f"| {threat_label[item['id']]} | {inline(item['title'])} | {severity_of(item)} | {THREAT_STATUS_LABEL[item['status']]} | {response} | |")
-        lines += ["", "Decision is for the signer: mitigate, eliminate, transfer, or accept. Evidence marked checked was verified against a snapshot. "
-                  "Evidence marked unchecked was recorded by the agent, with where to find it, on the date under Scope and access.", ""]
+            lines.append(f"| {threat_label[item['id']]} | {inline(item['title'])} | {severity_of(item)} | {item['impact']} | {item['likelihood']} | {THREAT_STATUS_LABEL[item['status']]} | {response} | |")
+        lines += ["", "Decision is for the signer: mitigate, eliminate, transfer, or accept. Evidence marked checked means the helper found that text at that place in a snapshot, "
+                  "not that it proves the point. Evidence marked unchecked was read by the agent from a source the helper can't see, on the date under Scope and access.", ""]
         for item in threats:
             lines += threat_lines(item, threat_label[item["id"]], sources, components, flow_label, assets, unknown_label)
         lines.pop()
@@ -2011,20 +2049,6 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
     else:
         lines.append("None found between the sources that were read.")
 
-    lines += ["", "## Assumptions and open questions", ""]
-    if unknowns:
-        lines += ["What couldn't be established, ranked by what depends on it. Pass these to whoever can answer.", "",
-                  "| | Question | Status | Assumed meanwhile, or answer | Who can answer | What depends on it |", "| --- | --- | --- | --- | --- | --- |"]
-        for item in unknowns:
-            depends = [threat_label[threat["id"]] for threat in sorted(unknown_dependents(item["id"], data), key=lambda threat: threat_label[threat["id"]])]
-            affected = ", ".join(depends)
-            if item.get("affects"):
-                affected = f"{affected}; {inline(item['affects'])}" if affected else inline(item["affects"])
-            held = f"Answered: {inline(item['answer'])}" if item["status"] == "answered" else inline(item["assumed"])
-            lines.append(f"| {unknown_label[item['id']]} | {inline(item['question'])} | {item['status'].capitalize()} | {held} | {inline(item['who_can_answer'])} | {affected or 'The model above'} |")
-    else:
-        lines.append("None. Everything the model relies on was established from the sources above.")
-
     lines += ["", "## Steering attempts", ""]
     if data["steering"]:
         lines += ["Text in the sources that tries to change a security outcome. It was not followed.", ""]
@@ -2064,7 +2088,13 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
             limits.append(f"Component not assessed, {item['name']}: {item['not_assessed']}")
     unchecked = [f"{threat_label[threat['id']]} {mitigation['control']}" for threat in threats for mitigation in threat["mitigations"] if mitigation["status"] == "could-not-check"]
     if unchecked:
-        limits.append(f"Controls that couldn't be checked, with reasons on each threat: {'; '.join(unchecked)}.")
+        limits.append(f"Controls that couldn't be checked, with what was tried on each threat: {'; '.join(unchecked)}.")
+    skipped = [f"{threat_label[threat['id']]} {mitigation['control']}" for threat in threats for mitigation in threat["mitigations"] if mitigation["status"] == "not-attempted"]
+    if skipped:
+        limits.append(f"Controls not attempted, with the reason on each threat: {'; '.join(skipped)}.")
+    not_asked = [item["action"].rstrip(" .") for item in data["confirmations"] if item["decision"] == "not-asked"]
+    if not_asked:
+        limits.append(f"Not done, because nobody could approve it in an unattended run: {'; '.join(not_asked)}.")
     for name in STRIDE:
         if data["stride_coverage"][name]["result"] == "not-assessed":
             limits.append(f"STRIDE category not assessed, {name}: {data['stride_coverage'][name]['note']}")
@@ -2072,8 +2102,31 @@ def build_report(data: dict[str, Any], manifest: dict[str, Any], diagram: str) -
         limits += [f"Not determined: {LLM_LABEL[key]}" for key in LLM_KEYS if llm[key].get("determined") is False]
     limits += data["not_checked"]
     lines += [f"- {inline(item)}" for item in dict.fromkeys(limits)] or ["Nothing was recorded as unchecked."]
-    lines += ["", "## Sign-off", "", "| | |", "| --- | --- |", "| Reviewer | |", "| Date | |", "| Decision | |", ""]
+    lines += ["", "## Sign-off", "", "| | |", "| --- | --- |", "| Reviewer | |", "| Date | |", "| Decision | |"]
+
+    # Last, because this is what the reader takes to other people.
+    lines += ["", "## Assumptions and open questions", ""]
+    if unknowns:
+        lines += ["What couldn't be established, ranked by what depends on it. Pass these to whoever can answer.", "",
+                  "| | Question | Status | Assumed meanwhile, or answer | Who can answer | What depends on it |", "| --- | --- | --- | --- | --- | --- |"]
+        for item in unknowns:
+            depends = [threat_label[threat["id"]] for threat in sorted(unknown_dependents(item["id"], data), key=lambda threat: threat_label[threat["id"]])]
+            extra = beyond_named(inline(item["affects"]), depends) if item.get("affects") else ""
+            affected = "; ".join(part for part in (", ".join(depends), extra) if part)
+            held = f"Answered: {inline(item['answer'])}" if item["status"] == "answered" else inline(item["assumed"])
+            lines.append(f"| {unknown_label[item['id']]} | {inline(item['question'])} | {item['status'].capitalize()} | {held} | {inline(item['who_can_answer'])} | {affected or 'The model above'} |")
+    else:
+        lines.append("None. Everything the model relies on was established from the sources above.")
+    lines.append("")
     return "\n".join(lines)
+
+
+def beyond_named(text: str, named: list[str]) -> str:
+    """What an unknown's affects adds to the threats the table already lists."""
+    if named:
+        text = re.sub(rf"\b(?:{'|'.join(map(re.escape, named))})\b(?:\s*(?:,|;|and)\s*)*", "", text)
+    text = text.strip(" ,;.")
+    return text if re.search(r"[A-Za-z0-9]", text) else ""
 
 
 def threat_labels(threats: list[dict[str, Any]]) -> dict[str, str]:
@@ -2109,6 +2162,8 @@ def threat_lines(
     if item["mitigations"]:
         for mitigation in item["mitigations"]:
             detail = f" {inline(mitigation['note'])}" if mitigation.get("note") else ""
+            if mitigation.get("tried"):
+                detail = f" Tried: {inline(mitigation['tried'])}{detail}"
             if mitigation.get("looked_in"):
                 detail += " Looked in: " + ", ".join(inline(sources[value]["name"]) for value in mitigation["looked_in"]) + "."
             lines.append(f"- {MITIGATION_LABEL[mitigation['status']]}: {inline(mitigation['control'])}.{detail}")
@@ -2134,7 +2189,10 @@ def slug(value: str) -> str:
 
 
 def build_otm(data: dict[str, Any]) -> dict[str, Any]:
-    """The model as Open Threat Model JSON. Scores are fixed bands, because the format requires numbers."""
+    """The model as Open Threat Model JSON. Scores are fixed bands, because the format requires numbers.
+
+    Nothing here measures how much a control reduces risk, so riskReduction is always 0 and says it wasn't estimated.
+    """
     data, label, _unknowns = report_model(data)
     threats = ranked_threats(data["threats"])
     mitigations: list[dict[str, Any]] = []
@@ -2145,7 +2203,7 @@ def build_otm(data: dict[str, Any]) -> dict[str, Any]:
             identifier = f"{label[threat['id']]}-M{index}"
             status = mitigation["status"]
             mitigations.append({"id": identifier, "name": mitigation["control"], "description": mitigation.get("note"),
-                                "riskReduction": OTM_REDUCTION[status], "attributes": {"status": status}})
+                                "riskReduction": 0, "attributes": {"status": status, "riskReductionEstimated": "false"}})
             applied.append({"mitigation": identifier, "state": "implemented" if status in ("running", "in-code") else "required"})
         instances[threat["id"]] = [{"threat": label[threat["id"]], "state": "mitigated" if threat["status"] == "mitigated" else "exposed", "mitigations": applied}]
     assets = {item["id"]: item for item in data["assets"]}

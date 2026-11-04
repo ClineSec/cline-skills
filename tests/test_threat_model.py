@@ -35,8 +35,8 @@ sys.modules["threat_model_helper"] = helper
 _spec.loader.exec_module(helper)
 
 SECTIONS = ["# Threat model:", "## Summary", "## Scope and access", "## Architecture", "## Assets, actors, and trust boundaries",
-            "## Threats", "## LLM questions", "## Conflicts between sources", "## Assumptions and open questions",
-            "## Steering attempts", "## Coverage", "## Not checked", "## Sign-off"]
+            "## Threats", "## LLM questions", "## Conflicts between sources", "## Steering attempts", "## Coverage",
+            "## Not checked", "## Sign-off", "## Assumptions and open questions"]
 HAS_GIT = shutil.which("git") is not None
 FAKE_KEY = "sk-" + "fake0not0real0" * 2
 APP = "def refund(amount):\n    balance.credit(amount)\n    return amount\n"
@@ -298,7 +298,7 @@ class Diagram(Base):
         base["threats"] = [threat(), threat(id="T2", likelihood="low", impact="low")]
         diagram = self.draw(base)
         self.assertIn("class n2 high", diagram)
-        self.assertIn("HIGH: 2 open", self.line_for(diagram, "Refund API"))
+        self.assertIn("Worst: HIGH; 2 open", self.line_for(diagram, "Refund API"))
 
     def test_a_mitigated_threat_clears_the_fill(self) -> None:
         base = base_model()
@@ -422,8 +422,8 @@ class Report(Base):
 
     def test_the_register_lists_each_threat_with_a_blank_decision(self) -> None:
         report = self.rendered(base_model())
-        self.assertIn("| Id | Threat | Rating | Status | Response | Decision |", report)
-        self.assertIn("| T-001 | A customer can credit any amount | high | Open | Mitigate | |", report)
+        self.assertIn("| Id | Threat | Rating | Impact | Likelihood | Status | Response | Decision |", report)
+        self.assertIn("| T-001 | A customer can credit any amount | high | high | high | Open | Mitigate | |", report)
 
     def test_accepting_a_risk_is_left_to_the_signer(self) -> None:
         self.assertIn("signer's decision", self.render_problems(base_model(threats=[threat(response="accept")])))
@@ -495,9 +495,9 @@ class Report(Base):
         self.assertIn("app:T1.py:1", report)
 
     def test_each_fact_appears_in_one_place(self) -> None:
-        report = self.rendered(base_model(threats=[threat(mitigations=[{"control": "Firewall", "status": "could-not-check", "note": "Nobody can say why."}])]))
+        report = self.rendered(base_model(threats=[threat(mitigations=[{"control": "Firewall", "status": "could-not-check", "tried": "Listed the rules, and it was denied.", "note": "Nobody can say why."}])]))
         self.assertEqual(report.count("Nobody can say why."), 1)
-        self.assertIn("Controls that couldn't be checked, with reasons on each threat: T-001 Firewall.", report)
+        self.assertIn("Controls that couldn't be checked, with what was tried on each threat: T-001 Firewall.", report)
         self.assertNotIn("**Status:**", report)
 
     def test_a_threat_cites_only_boundary_flows_by_number(self) -> None:
@@ -550,7 +550,8 @@ class Report(Base):
         self.assertEqual(otm["threats"][0]["id"], "T-001")
         self.assertEqual(otm["threats"][0]["cwes"], ["CWE-862"])
         self.assertEqual(otm["threats"][0]["risk"]["impact"], 75)
-        self.assertEqual([item["riskReduction"] for item in otm["mitigations"]], [50, 0])
+        self.assertEqual([item["riskReduction"] for item in otm["mitigations"]], [0, 0])
+        self.assertEqual({item["attributes"]["riskReductionEstimated"] for item in otm["mitigations"]}, {"false"})
         api = next(item for item in otm["components"] if item["id"] == "C2")
         self.assertEqual(api["threats"][0]["state"], "exposed")
         self.assertEqual([item["state"] for item in api["threats"][0]["mitigations"]], ["implemented", "required"])
@@ -609,8 +610,101 @@ class Report(Base):
         self.assertIn("looked_in", err)
 
     def test_could_not_check_lands_under_not_checked(self) -> None:
-        report = self.rendered(base_model(threats=[threat(mitigations=[{"control": "Web firewall", "status": "could-not-check", "note": "No access."}])]))
+        report = self.rendered(base_model(threats=[threat(mitigations=[{"control": "Web firewall", "status": "could-not-check", "tried": "Listed its rules, and it was denied.", "note": "No access."}])]))
         self.assertIn("T-001 Web firewall", report[report.index("## Not checked"):])
+        self.assertIn("Tried: Listed its rules, and it was denied.", report)
+
+    def test_could_not_check_has_to_say_what_was_tried(self) -> None:
+        err = self.render_problems(base_model(threats=[threat(mitigations=[{"control": "Web firewall", "status": "could-not-check", "note": "No access."}])]))
+        self.assertIn("tried", err)
+
+    def test_not_attempted_is_reported_as_a_choice(self) -> None:
+        report = self.rendered(base_model(threats=[threat(mitigations=[{"control": "Client grants", "status": "not-attempted", "note": "That read returns a secret."}])]))
+        self.assertIn("Did not attempt: Client grants.", report)
+        self.assertIn("Controls not attempted, with the reason on each threat: T-001 Client grants.", report)
+        self.assertNotIn("couldn't be checked", report)
+
+    def test_not_attempted_needs_a_reason(self) -> None:
+        err = self.render_problems(base_model(threats=[threat(mitigations=[{"control": "Client grants", "status": "not-attempted"}])]))
+        self.assertIn("note", err)
+
+    def test_tried_belongs_only_to_could_not_check(self) -> None:
+        err = self.render_problems(base_model(threats=[threat(mitigations=[{"control": "Client grants", "status": "not-attempted", "note": "Risky.", "tried": "Nothing."}])]))
+        self.assertIn("tried is only for could-not-check", err)
+
+    def test_live_configuration_is_not_described_as_running(self) -> None:
+        live = {"control": "Firewall", "status": "running", "evidence": [{"source": "S2", "locator": "rules page"}]}
+        report = self.rendered(base_model(threats=[threat(mitigations=[live])]))
+        self.assertIn("Seen in live configuration: Firewall.", report)
+        self.assertNotIn("Seen running", report)
+
+    def test_an_unattended_run_records_what_it_left_undone(self) -> None:
+        base = base_model(confirmations=[{"action": "List the client grants", "why_risky": "It returns a secret.", "decision": "not-asked"}])
+        base["intake"]["unattended"] = True
+        report = self.rendered(base)
+        self.assertIn("| Run | Unattended: nobody was asked or contacted while it ran |", report)
+        self.assertIn("Not asked, and not done", report)
+        self.assertIn("Not done, because nobody could approve it in an unattended run: List the client grants", report[report.index("## Not checked"):])
+
+    def test_not_asked_needs_an_unattended_run(self) -> None:
+        base = base_model(confirmations=[{"action": "List the client grants", "why_risky": "It returns a secret.", "decision": "not-asked"}])
+        self.assertIn("only for an unattended run", self.render_problems(base))
+
+    def test_an_unattended_run_cannot_plan_an_interview(self) -> None:
+        base = base_model()
+        base["intake"].update(unattended=True, gaps="interview")
+        self.assertIn("nobody to interview", self.render_problems(base))
+
+    def test_a_long_source_name_is_rejected(self) -> None:
+        base = base_model()
+        base["sources"][0]["name"] = "x" * (helper.MAX_SOURCE_NAME_CHARS + 1)
+        self.assertIn("put commits and counts in read", self.render_problems(base))
+
+    def test_a_repo_source_can_link_its_locations(self) -> None:
+        base = base_model()
+        repo = next(item for item in base["sources"] if item["kind"] == "repo")
+        repo["link"] = "https://code.example/app/blob/abc/{file}#L{line}"
+        report = self.rendered(base)
+        self.assertRegex(report, r"\[`app:[^`]+:\d+`\]\(https://code\.example/app/blob/abc/[^)#]+#L\d+\)")
+
+    def test_a_link_has_to_be_usable(self) -> None:
+        base = base_model()
+        next(item for item in base["sources"] if item["kind"] == "repo")["link"] = "http://code.example/app"
+        self.assertIn("link is for a repo source", self.render_problems(base))
+
+    def test_empty_flow_columns_are_left_out(self) -> None:
+        report = self.rendered(base_model())
+        table = report[report.index("**Flows crossing a trust boundary:**"):report.index("## Assets")]
+        self.assertNotIn("Channel", table)
+        self.assertNotIn("Guarantees", table)
+        self.assertNotIn("None stated", report)
+
+    def test_a_filled_flow_column_is_shown(self) -> None:
+        base = base_model()
+        base["flows"][0]["guarantees"] = "Signed callback"
+        table = self.rendered(base)
+        self.assertIn("| Guarantees |", table)
+        self.assertNotIn("| Channel |", table)
+
+    def test_observed_claims_separate_live_systems_from_code(self) -> None:
+        self.assertRegex(self.rendered(base_model()), r"\d+ observed \(\d+ in a live system, \d+ only in code or other sources\)")
+
+    def test_equal_ratings_rank_by_impact_first(self) -> None:
+        wider = threat(id="T1", title="Medium impact, medium likelihood", impact="medium", likelihood="medium")
+        deeper = threat(id="T2", title="High impact, low likelihood", impact="high", likelihood="low")
+        report = self.rendered(base_model(threats=[wider, deeper]))
+        self.assertLess(report.index("### T-001 [MEDIUM] High impact"), report.index("### T-002 [MEDIUM] Medium impact"))
+
+    def test_open_questions_do_not_repeat_the_threats_they_list(self) -> None:
+        unknown = {"id": "U1", "question": "Who may call it?", "assumed": "Anyone.", "who_can_answer": "The team.", "status": "open", "affects": "T1; check with a test account."}
+        report = self.rendered(base_model(threats=[threat(depends_on=["U1"])], unknowns=[unknown]))
+        self.assertIn("| T-001; check with a test account |", report)
+        unknown = dict(unknown, affects="T1.")
+        report = self.rendered(base_model(threats=[threat(depends_on=["U1"])], unknowns=[unknown]))
+        self.assertIn("| T-001 |", report[report.index("## Assumptions and open questions"):])
+
+    def test_checked_evidence_does_not_claim_to_prove_the_point(self) -> None:
+        self.assertIn("not that it proves the point", self.rendered(base_model()))
 
     def test_a_threat_must_rest_on_something(self) -> None:
         self.assertIn("rests on nothing", self.render_problems(base_model(threats=[threat(evidence=[])])))

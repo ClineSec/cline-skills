@@ -34,6 +34,9 @@ If you don't say, it asks these four things once, in one message, before it star
 
 It doesn't ask how the system works. That's the point.
 
+To run it unattended, give all four up front and say so. It then interviews and contacts nobody. Anything it would have stopped to ask about, it
+leaves undone, and the report lists it.
+
 ## What it does
 
 1. Copies each repository into a snapshot in its working folder, and draws a first architecture diagram from what that shows.
@@ -53,7 +56,7 @@ It changes nothing in any system it assesses, unless you explicitly say otherwis
 place you chose. Reading metadata and configuration needs no extra permission, including in production.
 
 It stops and asks before anything that seems dangerous or risky, such as a read that would pull customer data or a secret's value, or a
-call that might change state or cost money. The report records what it asked and what you decided. It never runs what it finds, and
+call that might change state or cost money. The report records what it raised and what happened. It never runs what it finds, and
 never attempts to exploit anything.
 
 A credential it finds in the material is a finding. It reports the location, never copies the value, and never uses it. It works only
@@ -76,17 +79,17 @@ leaves them out of the deliverables if your destination is somewhere else.
 | Section | What it holds |
 | --- | --- |
 | Summary | Open threats by rating, the top risks, and how much of the model was seen directly |
-| Scope and access | Every source, used or not, and what it asked you before acting |
+| Scope and access | Every source, used or not, and any risky action it raised |
 | Architecture | The diagram, then each component and flow and how it's known |
 | Assets, actors, and trust boundaries | What's worth protecting, who could abuse it, and where trust changes |
-| Threats | What each rating means here, a one-line-each register with a blank Decision column for you, then one short entry per threat |
+| Threats | What each rating means here, a one-line-each register with impact, likelihood, and a blank Decision column for you, then one short entry per threat |
 | LLM questions | Where untrusted text enters a prompt, where model output goes, and what the tools can do, with locations |
 | Conflicts between sources | Where code, running systems, and documents disagree, and which it believed |
-| Assumptions and open questions | What it couldn't establish, ranked by what depends on it, and who could answer |
 | Steering attempts | Text that tried to change the outcome, and what was done about it |
 | Coverage | What STRIDE turned up, boundary crossings with no threat listed, and how the model held up against the past |
 | Not checked | What wasn't examined. Nothing listed here is a clean result |
 | Sign-off | Blank, for you |
+| Assumptions and open questions | What it couldn't establish, ranked by what depends on it, and who could answer. Last, so you can pass it on |
 
 The report is kept short on purpose: length limits apply to each field, and a report holds at most 30 threats. That's a ceiling and not a
 target, so a small tool may have only two. Related threats are merged rather than dropped.
@@ -101,11 +104,12 @@ from the [Threat Modeling Manifesto](https://www.threatmodelingmanifesto.org/):
 | What are we working on? | Scope and access, Architecture, Assets, actors, and trust boundaries |
 | What can go wrong? | Threats, LLM questions, Conflicts between sources |
 | What are we going to do about it? | The response on each threat, and the Decision column |
-| Did we do a good enough job? | Assumptions and open questions, Coverage, Not checked, Sign-off |
+| Did we do a good enough job? | Coverage, Not checked, Sign-off, Assumptions and open questions |
 
 Threats use the threat grammar from [AWS Threat Composer](https://github.com/awslabs/threat-composer). Responses use the mitigate, eliminate,
 transfer, and accept options from the [OWASP Threat Modeling Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html),
-and the skill leaves accept to you. The Open Threat Model file needs numeric scores, so it uses fixed bands rather than measurements.
+and the skill leaves accept to you. The Open Threat Model file needs numeric scores, so it uses fixed bands rather than measurements, and it
+records every control's risk reduction as 0, marked as not estimated.
 
 ### Reading the diagram
 
@@ -118,14 +122,15 @@ The helper generates the diagram from the model, so the colors and legend are th
 
 ### How far to trust it
 
-Each claim says how it's known: observed, documented, inferred, or assumed. Each mitigation says whether it was seen running, seen in
-code, only documented, looked for and not found, or couldn't be checked. A threat can't be marked mitigated on the strength of a
-document alone.
+Each claim says how it's known: observed, documented, inferred, or assumed. Each mitigation says whether it was seen in live configuration,
+seen in code, only documented, looked for and not found, couldn't be checked, with what was tried, or not attempted, with why. A threat can't be
+marked mitigated on the strength of a document alone. Live configuration shows what is set, not what a request would meet, because it never sends one.
 
 Ratings come from a fixed table of likelihood and impact, and the agent has to say why it chose those two. A statement somewhere that
 a risk was accepted is recorded but doesn't lower the rating, since accepting a risk is your decision.
 
-Evidence from a repository is checked: a quote has to be at the cited line, or the report isn't written. **Evidence from anywhere else
+Evidence from a repository is checked: a quote has to be at the cited line, or the report isn't written. That shows the text is there, not that
+it proves the point, so read the evidence on anything you act on. **Evidence from anywhere else
 can't be checked by the helper,** because it never sees those systems. The report labels which is which, with a locator and date so you
 can look for yourself.
 

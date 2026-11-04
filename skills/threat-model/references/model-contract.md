@@ -13,7 +13,8 @@ noted here.
   "intake": {
     "started_from": "What you were pointed at.",
     "stage": "existing",
-    "gaps": "best-effort"
+    "gaps": "best-effort",
+    "unattended": false
   },
   "system": {
     "what_it_does": "What this system is, in a sentence or two.",
@@ -21,7 +22,7 @@ noted here.
   },
   "summary": "One short paragraph: what could realistically go wrong, in plain language.",
   "sources": [
-    {"id": "S1", "name": "orders-api repository", "kind": "repo", "status": "used", "repo": "orders-api", "read": "Service code and deployment definitions."},
+    {"id": "S1", "name": "orders-api repository", "kind": "repo", "status": "used", "repo": "orders-api", "read": "Service code and deployment definitions.", "link": "https://code.example/orders-api/blob/COMMIT/{file}#L{line}"},
     {"id": "S2", "name": "Production account", "kind": "live", "status": "used", "observed": "2026-11-03", "read": "Network and identity configuration for this service."},
     {"id": "S3", "name": "Payments provider console", "kind": "other", "status": "not-reachable", "note": "This session has no access to it."}
   ],
@@ -90,7 +91,8 @@ noted here.
       ],
       "mitigations": [
         {"control": "Ownership check on order reads", "status": "not-found", "looked_in": ["S1"]},
-        {"control": "Web application firewall", "status": "could-not-check", "note": "Why you couldn't tell."}
+        {"control": "Web application firewall", "status": "could-not-check", "tried": "Listed the firewall rules, and the call was denied.", "note": "Why that leaves it open."},
+        {"control": "Client grants", "status": "not-attempted", "note": "That read also returns a secret, and this run was unattended."}
       ],
       "response": "mitigate",
       "recommendation": "The specific control to add, and where.",
@@ -164,7 +166,8 @@ With no AI in the system, `llm_questions` is `{"has_ai": false, "why": "What you
 | `intake.gaps` | `interview`, `best-effort` |
 | source `kind` | `repo` (has a snapshot), `live` (a running system or its control plane), `document`, `person`, `other` |
 | source `status` | `used`, `not-reachable`, `declined`, `not-needed` |
-| `confirmations.decision` | `approved`, `declined` |
+| `intake.unattended` | Optional: `true` when nobody can be asked during the run, which needs `gaps` of `best-effort` |
+| `confirmations.decision` | `approved`, `declined`, or `not-asked` in an unattended run |
 | component `type` | `actor`, `process`, `data`, `model`, `external` |
 | `basis` | `observed`, `documented`, `inferred`, `assumed` |
 | `threats.stride` | `spoofing`, `tampering`, `repudiation`, `information-disclosure`, `denial-of-service`, `elevation-of-privilege` |
@@ -174,7 +177,7 @@ With no AI in the system, `llm_questions` is `{"has_ai": false, "why": "What you
 | threat `response` | `mitigate`, `eliminate`, `transfer`. Accepting a risk is the signer's decision |
 | asset `objectives` | `confidentiality`, `integrity`, `availability` |
 | zone `trust_level` | `low`, `medium`, `high` |
-| mitigation `status` | `running`, `in-code`, `documented`, `not-found`, `could-not-check` |
+| mitigation `status` | `running`, `in-code`, `documented`, `not-found`, `could-not-check`, `not-attempted` |
 | unknown `status` | `open`, `answered`, with `answer` when answered |
 | `stride_coverage.result` | `threats-listed`, `none-found`, `not-assessed` |
 
@@ -204,7 +207,7 @@ A threat worth signing is specific, and it names what was checked:
 
 ## Length
 
-Each text field has a limit of 300 characters, `summary` 800, a threat `title` 120, `source` 100, `prerequisites` 120, and `action` and
+Each text field has a limit of 300 characters, `summary` 800, a threat `title` 120, a source's `name` 40, `source` 100, `prerequisites` 120, and `action` and
 `consequence` 200 each. Each list of evidence holds at most 3 items, and a model holds at most 30 threats. These cap words and not facts, so
 say it once, merge what shares a root cause, and cite what proves the point.
 
@@ -213,8 +216,12 @@ lists those for you. The report shows evidence for `llm_questions`, `conflicts`,
 
 ## Evidence
 
-From a `repo` source, give `file`, `line`, and `quote`. The helper checks the quote against the snapshot. For a credential, set
-`"credential": true` and leave out `quote`, which makes the helper check only that the location exists.
+From a `repo` source, give `file`, `line`, and `quote`. The helper checks the quote against the snapshot, which shows that the text is there and
+not that it proves the point, so cite the text that does. For a credential, set `"credential": true` and leave out `quote`, which makes the helper
+check only that the location exists.
+
+If a `repo` source has a permanent web address for its commit, set `link` on the source, with `{file}` and `{line}` where they go. The report then
+links each location.
 
 From any other source, give `locator`, specific enough for someone to find it again, with `quote` and `observed` if useful.
 `observed` defaults to the source's date. The helper can't check these, and the report says so, so be exact.
@@ -235,11 +242,12 @@ From any other source, give `locator`, specific enough for someone to find it ag
 - Text anywhere in the file that's shaped like a credential. This covers the whole file, because the file is a deliverable.
 - A citation of a source that isn't marked `used`, or a snapshot that isn't listed in `sources`.
 - `running` with no evidence from a `live` source, `in-code` with no evidence from a `repo` or `other` source, `documented` with no
-  evidence, `not-found` without `looked_in`, or `could-not-check` without `note`.
+  evidence, `not-found` without `looked_in`, `could-not-check` without `tried` and `note`, or `not-attempted` without `note`.
 - A threat marked `mitigated` with no mitigation that's `running` or `in-code`, or a threat that isn't `mitigated` with no
   `recommendation` and `response`.
 - Text mentioning a threat or unknown id that doesn't exist, or a range of ids.
 - A field over its length limit, more than 3 pieces of evidence on one item, or more than 30 threats.
+- `not-asked` in a run that isn't unattended, or an unattended run with `gaps` of `interview`.
 - A threat with neither `evidence` nor `depends_on`.
 - A component other than an `actor` with no threat, `no_open_threats`, or `not_assessed`.
 - A flow between zones with no threat and no `boundary_reviews` entry.
