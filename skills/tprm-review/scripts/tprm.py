@@ -184,6 +184,11 @@ POLICY_KEYS = {"requirement", "policy_cite", "status", "basis", "cites"}
 CITE_KEYS = {"source", "quote", "credential"}
 
 
+def write_exact(path: Path, text: str, errors: str = "strict") -> None:
+    """Write UTF-8 with no newline translation: on Windows, text mode would corrupt Git's files and shift line numbers."""
+    path.write_bytes(text.encode("utf-8", errors))
+
+
 class Refused(Exception):
     """The helper will not proceed, and the reason is for the operator."""
 
@@ -446,7 +451,7 @@ def ingest(docs: Path, out: Path, prefix: str, originals: str, texts: str, skipp
         (out / originals / f"{number}.original").write_bytes(raw)
         extraction = extract_text(raw, suffix)
         text_path = out / texts / f"{number}.txt"
-        text_path.write_text(extraction.text, encoding="utf-8", errors="replace")
+        write_exact(text_path, extraction.text, errors="replace")
         source: dict[str, Any] = {
             "id": number,
             "name": relative,
@@ -554,7 +559,7 @@ def skip_limits(skipped: dict[str, list[str]]) -> list[str]:
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_exact(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
 # ---------------------------------------------------------------------------------------- extraction
@@ -1554,7 +1559,7 @@ def cmd_capture(args: argparse.Namespace) -> int:
         print(f"{path.name} couldn't be read automatically: {extraction.note}. Save its text as research/{args.id}.txt yourself, "
               "or set captured to false.", file=sys.stderr)
         return 1
-    (out / "research" / f"{args.id}.txt").write_text(extraction.text, encoding="utf-8", errors="replace")
+    write_exact(out / "research" / f"{args.id}.txt", extraction.text, errors="replace")
     print(f"Saved research/{args.id}.txt")
     return 0
 
@@ -1592,11 +1597,11 @@ def cmd_render(args: argparse.Namespace) -> int:
     if code:
         return code
     report = out / "report.md"
-    report.write_text(build_report(data, manifest, index), encoding="utf-8", errors="replace")
+    write_exact(report, build_report(data, manifest, index), errors="replace")
     questions = vendor_questions(data)
     letter = out / "vendor-questions.md"
     if questions:
-        letter.write_text(build_vendor_questions(questions, manifest), encoding="utf-8", errors="replace")
+        write_exact(letter, build_vendor_questions(questions, manifest), errors="replace")
     elif letter.exists():
         letter.unlink()
     counts = severity_counts(data["discrepancies"] + data["gaps"])

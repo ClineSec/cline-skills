@@ -211,6 +211,11 @@ TOP_KEYS = {"engagement", "summary", "verdict", "needed_to_decide", "vendor_revi
 ENGAGEMENT_KEYS = {"server", "instance", "team", "agent", "data", "alongside", "assumptions"}
 
 
+def write_exact(path: Path, text: str, errors: str = "strict") -> None:
+    """Write UTF-8 with no newline translation: on Windows, text mode would corrupt Git's files and shift line numbers."""
+    path.write_bytes(text.encode("utf-8", errors))
+
+
 class Refused(Exception):
     """The helper won't proceed, and correcting the assessment wouldn't change that."""
 
@@ -305,7 +310,7 @@ def prepare_output(out: Path) -> None:
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_exact(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
 def load_manifest(out: Path) -> dict[str, Any]:
@@ -506,7 +511,7 @@ def ingest_documents(manifest: dict[str, Any], out: Path, root: Path, kind: str,
             text = decode_text(raw)
             if path.suffix.lower() in HTML_SUFFIXES:
                 text = html_text(text)
-            (out / "text" / f"{source}.txt").write_text(text, encoding="utf-8", errors="replace")
+            write_exact(out / "text" / f"{source}.txt", text, errors="replace")
             find_leads(manifest, source, None, text)
         else:
             entry["needs_transcript"] = True
@@ -526,7 +531,7 @@ def ingest_config(manifest: dict[str, Any], out: Path, path: Path, origin: str |
     (out / "text").mkdir(exist_ok=True)
     source = next_id(manifest, "config")
     text = mask_config(decode_text(path.read_bytes()))
-    (out / "text" / f"{source}.txt").write_text(text, encoding="utf-8", errors="replace")
+    write_exact(out / "text" / f"{source}.txt", text, errors="replace")
     manifest["sources"].append({"id": source, "kind": "config", "name": path.name,
                                 "origin": origin or f"Supplied by the operator: {path.name}", "retrieved": now(),
                                 "sha256": hashlib.sha256(text.encode("utf-8", "replace")).hexdigest(),
@@ -772,7 +777,7 @@ def store_listing(manifest: dict[str, Any], out: Path, kind: str, listing: dict[
     combined = hashlib.sha256(json.dumps(definitions, sort_keys=True).encode()).hexdigest()
     write_json(out / "live" / f"{source}.json", listing)
     text = listing_text(listing)
-    (out / "live" / f"{source}.txt").write_text(text, encoding="utf-8", errors="replace")
+    write_exact(out / "live" / f"{source}.txt", text, errors="replace")
     manifest["sources"].append({"id": source, "kind": kind, "name": origin, "origin": origin, "retrieved": now(),
                                 "state": listing.get("state", "listed"), "tools": sorted(definitions),
                                 "tool_digests": definitions, "definitions_sha256": combined, "needs_transcript": False})
@@ -1137,7 +1142,7 @@ def ingest_policy(manifest: dict[str, Any], out: Path, path: Path | None) -> Non
             continue
         source = next_id(manifest, "policy")
         text = decode_text(child.read_bytes())
-        (out / "policy" / f"{source}.txt").write_text(text, encoding="utf-8", errors="replace")
+        write_exact(out / "policy" / f"{source}.txt", text, errors="replace")
         manifest["sources"].append({"id": source, "kind": "policy", "name": relative, "origin": f"Policy: {relative}",
                                     "retrieved": now(), "needs_transcript": False})
     record_skipped(manifest, "the policy", skipped)
@@ -2164,7 +2169,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         return 1
     report = out / "report.md"
     text = build_report(data, manifest, lines, evidence)
-    report.write_text(text, encoding="utf-8", errors="replace")
+    write_exact(report, text, errors="replace")
     write_json(out / "report.sarif", build_sarif(data, manifest, lines, evidence, out))
     print(f"Wrote {report} ({len(text.split())} words) and report.sarif | {RECOMMENDATION_LABEL[data['verdict']['recommendation']]} | "
           f"{len(data['findings'])} findings, {len(data['conflicts'])} conflicts, {len(data['steering'])} steering")

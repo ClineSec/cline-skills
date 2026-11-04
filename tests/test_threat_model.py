@@ -850,6 +850,7 @@ class Report(Base):
         self.assertNotIn("No live system was examined", self.rendered(base_model()))
 
     def test_a_plan_with_no_repository_renders(self) -> None:
+        helper.make_writable(self.out)
         shutil.rmtree(self.out)
         self.assertEqual(self.call("prepare", "--out", str(self.out))[0], 0)
         base = base_model()

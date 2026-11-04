@@ -149,6 +149,11 @@ SARIF_LEVEL_OF = {"critical": "error", "high": "error", "medium": "warning", "lo
 SARIF_SCHEMA = "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json"
 
 
+def write_exact(path: Path, text: str, errors: str = "strict") -> None:
+    """Write UTF-8 with no newline translation: on Windows, text mode would corrupt Git's files and shift line numbers."""
+    path.write_bytes(text.encode("utf-8", errors))
+
+
 class Refused(Exception):
     """The helper will not proceed, and the reason is for the operator."""
 
@@ -265,8 +270,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             f"Only the first {len(suppressions['listed'])} of {suppressions['total']} scanner suppression comments "
             "are listed in manifest.json. All of them are counted."
         )
-    (out / "files.txt").write_text(
-        "".join(f"{path}\n" for path in sorted(writer.written)), encoding="utf-8", errors="replace")
+    write_exact(out / "files.txt", "".join(f"{path}\n" for path in sorted(writer.written)), errors="replace")
     digest = digest_snapshot(snapshot)
     make_read_only(snapshot)
 
@@ -536,15 +540,15 @@ def build_clean_view(gitdir: Path, view: Path) -> Path:
     objects = check_object_store(common)
     (view / "objects" / "info").mkdir(parents=True)
     (view / "refs").mkdir()
-    (view / "objects" / "info" / "alternates").write_text(f"{objects}\n", encoding="utf-8")
+    write_exact(view / "objects" / "info" / "alternates", f"{objects}\n")
     config = "[core]\n\trepositoryformatversion = 1\n\tbare = true\n" if sha256 else "[core]\n\trepositoryformatversion = 0\n\tbare = true\n"
     if sha256:
         config += "[extensions]\n\tobjectformat = sha256\n"
-    (view / "config").write_text(config, encoding="utf-8")
+    write_exact(view / "config", config)
     head = read_small(gitdir / "HEAD").strip()
     if not re.fullmatch(r"ref: refs/[^\s]+|[0-9a-f]{40}|[0-9a-f]{64}", head):
         raise Refused("the target's Git HEAD isn't readable.")
-    (view / "HEAD").write_text(head + "\n", encoding="utf-8")
+    write_exact(view / "HEAD", head + "\n")
     packed = read_small(common / "packed-refs", 256 * 1024 * 1024)
     if packed:
         kept, skipping = [], False
@@ -557,10 +561,10 @@ def build_clean_view(gitdir: Path, view: Path) -> Path:
             skipping = not line.startswith("#") and (name.startswith("refs/replace/") or name.count("/") < 2)
             if not skipping:
                 kept.append(line)
-        (view / "packed-refs").write_text("\n".join(kept) + "\n", encoding="utf-8")
+        write_exact(view / "packed-refs", "\n".join(kept) + "\n")
     shallow = read_small(common / "shallow")
     if shallow:
-        (view / "shallow").write_text(shallow, encoding="utf-8")
+        write_exact(view / "shallow", shallow)
     copy_loose_refs(common / "refs", view / "refs", "refs")
     if gitdir != common:
         copy_loose_refs(gitdir / "refs", view / "refs", "refs")
@@ -605,7 +609,7 @@ def copy_loose_refs(source: Path, destination: Path, prefix: str) -> None:
         elif child.is_file() and prefix != "refs":  # Git would prefer refs/x over refs/tags/x, so x can shadow a tag.
             value = read_small(child, 4096).strip()
             if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}|ref: refs/[^\s]+", value):
-                (destination / child.name).write_text(value + "\n", encoding="utf-8")
+                write_exact(destination / child.name, value + "\n")
 
 
 def run_git(view: Path, *args: str, stdin: bytes | None = None) -> bytes:
@@ -960,7 +964,7 @@ def sarif_hit(number: int, tool: str, rules: dict[Any, Any], result: dict[str, A
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    write_exact(path, json.dumps(value, indent=2, ensure_ascii=True) + "\n")
 
 
 # ----------------------------------------------------------------------------------------- render
@@ -1144,12 +1148,12 @@ def cmd_render(args: argparse.Namespace) -> int:
             print(f"- {problem}", file=sys.stderr)
         return 1
     report = out / "report.md"
-    report.write_text(build_report(data, manifest, surface, files_read(out, surface)), encoding="utf-8", errors="replace")
+    write_exact(report, build_report(data, manifest, surface, files_read(out, surface)), errors="replace")
     write_json(out / "report.sarif", build_sarif(data, manifest))
     lower = out / LOWER_SEVERITY_FILE
     lower_text = build_lower_severity(data, manifest)
     if lower_text:
-        lower.write_text(lower_text, encoding="utf-8", errors="replace")
+        write_exact(lower, lower_text, errors="replace")
     elif lower.exists():
         lower.unlink()
     counts = severity_counts(data["findings"])
