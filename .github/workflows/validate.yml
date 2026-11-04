@@ -1,0 +1,66 @@
+name: Validate catalog and installers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.9"
+      - name: Validate catalog
+        run: python scripts/validate.py
+      - name: Validate POSIX shell syntax
+        if: runner.os != 'Windows'
+        run: sh -n scripts/team-skills.sh
+      - name: Validate native Windows PowerShell syntax
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/team-skills.ps1"), [ref]$tokens, [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+      - name: Run catalog and installer tests
+        run: python -m unittest discover -s tests -v
+      - name: Verify tests left tracked files unchanged
+        shell: bash
+        run: |
+          git diff --check
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+  policy-relay:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run PolicyRelay tests
+        run: python -m unittest discover -s tests/policy_relay -t tests -v
+      - name: Verify tests left tracked files unchanged
+        run: |
+          git diff --check
+          test -z "$(git status --porcelain --untracked-files=no)"

@@ -1,0 +1,8 @@
+{
+  "$schema": "./schemas/catalog.schema.json",
+  "schema_version": 1,
+  "catalog_id": "cline-skills",
+  "display_name": "Cline Skills",
+  "skills_directory": "skills",
+  "default_prefix": ""
+}

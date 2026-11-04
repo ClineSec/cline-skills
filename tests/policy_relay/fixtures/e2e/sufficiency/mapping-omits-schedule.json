@@ -1,0 +1,44 @@
+{
+  "contractVersion": "1.0",
+  "bundleId": "fictional-ai-policy",
+  "ambiguities": [],
+  "routes": [
+    {
+      "task": "ai-provider-use",
+      "title": "AI provider use",
+      "summary": "sending data to an AI model provider",
+      "applicability": [
+        {
+          "text": "Apply when a feature or internal tool sends data to an AI model provider.",
+          "sourceIds": [
+            "fictional-ai-security-standard"
+          ]
+        }
+      ],
+      "normativeRequirements": [
+        {
+          "force": "MUST",
+          "text": "send data to a provider only where the approved provider schedule allows that provider for the data's class.",
+          "sourceIds": [
+            "fictional-ai-security-standard"
+          ]
+        },
+        {
+          "force": "MUST NOT",
+          "text": "send credentials or authentication data to a model.",
+          "sourceIds": [
+            "fictional-ai-security-standard"
+          ]
+        }
+      ],
+      "exceptionsAndEscalation": [
+        {
+          "text": "When the provider or data class is uncertain, stop and escalate to the fictional AI security owner.",
+          "sourceIds": [
+            "fictional-ai-security-standard"
+          ]
+        }
+      ]
+    }
+  ]
+}

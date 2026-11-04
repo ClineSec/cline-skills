@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Team Skills catalog manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "catalog_id",
+    "display_name",
+    "skills_directory",
+    "default_prefix"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./schemas/catalog.schema.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "catalog_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "skills_directory": {
+      "const": "skills"
+    },
+    "default_prefix": {
+      "type": "string",
+      "maxLength": 62,
+      "pattern": "^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$"
+    }
+  }
+}

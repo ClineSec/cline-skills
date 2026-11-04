@@ -1,0 +1,72 @@
+{
+  "contractVersion": "1.0",
+  "bundleId": "fictional-policyrelay-demo",
+  "ambiguities": [],
+  "routes": [
+    {
+      "task": "secure-coding",
+      "title": "Secure coding at trust boundaries",
+      "summary": "changing application code that handles untrusted input or authorization",
+      "applicability": [
+        {
+          "text": "Apply when application code consumes untrusted input or changes an authorization boundary.",
+          "sourceIds": ["fictional-application-security-standard"]
+        }
+      ],
+      "normativeRequirements": [
+        {
+          "force": "MUST",
+          "text": "validate untrusted values before using them at a trust boundary.",
+          "sourceIds": ["fictional-application-security-standard"]
+        },
+        {
+          "force": "MUST",
+          "text": "include a negative authorization test for security-sensitive behavior.",
+          "sourceIds": [
+            "fictional-application-security-standard",
+            "fictional-security-review-guide"
+          ]
+        },
+        {
+          "force": "MUST NOT",
+          "text": "place credentials in source, fixtures, logs, or error messages.",
+          "sourceIds": ["fictional-application-security-standard"]
+        }
+      ],
+      "exceptionsAndEscalation": [
+        {
+          "text": "A temporary exception requires an owner, rationale, compensating control, approver, and expiry date.",
+          "sourceIds": ["fictional-security-review-guide"]
+        },
+        {
+          "text": "Stop and escalate to the fictional security owner when authority or policy meaning is uncertain.",
+          "sourceIds": ["fictional-security-review-guide"]
+        }
+      ]
+    },
+    {
+      "task": "vulnerability-triage",
+      "title": "Vulnerability triage",
+      "summary": "assessing and routing a reported security finding",
+      "applicability": [
+        {
+          "text": "Apply when a suspected product or dependency vulnerability is reported.",
+          "sourceIds": ["fictional-incident-handbook"]
+        }
+      ],
+      "normativeRequirements": [
+        {
+          "force": "MUST",
+          "text": "record severity evidence and an accountable owner before changing finding status.",
+          "sourceIds": ["fictional-incident-handbook"]
+        }
+      ],
+      "exceptionsAndEscalation": [
+        {
+          "text": "Leave the finding open and escalate to the fictional product security lead when severity or ownership is uncertain.",
+          "sourceIds": ["fictional-incident-handbook"]
+        }
+      ]
+    }
+  ]
+}

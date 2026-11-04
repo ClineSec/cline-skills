@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:policyrelay:policy-bundle-manifest:1.0",
+  "title": "PolicyRelay policy-bundle manifest 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "bundleId",
+    "bundleRevision",
+    "payloadRoot",
+    "routes"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "1.0"
+    },
+    "bundleId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "bundleRevision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+    },
+    "payloadRoot": {
+      "const": "payload"
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task", "entrypoint"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "entrypoint": {
+            "type": "string",
+            "pattern": "^guidance/[a-z0-9]+(?:-[a-z0-9]+)*\\.md$"
+          }
+        }
+      }
+    }
+  }
+}

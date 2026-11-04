@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:policyrelay:normalized-distiller-input:1.0",
+  "title": "PolicyRelay source-agnostic normalized distiller input 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "bundleId", "routes"],
+  "properties": {
+    "contractVersion": {"const": "1.0"},
+    "bundleId": {"$ref": "#/$defs/kebab"},
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/route"}
+    }
+  },
+  "$defs": {
+    "kebab": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "sourceIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/kebab"}
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "sourceIds"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "sourceIds": {"$ref": "#/$defs/sourceIds"}
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["force", "text", "sourceIds"],
+      "properties": {
+        "force": {
+          "enum": ["MUST", "MUST NOT", "SHOULD", "SHOULD NOT", "MAY"]
+        },
+        "text": {"type": "string", "minLength": 1},
+        "sourceIds": {"$ref": "#/$defs/sourceIds"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "sourceTitle",
+        "sourceRevision",
+        "sourceLocator",
+        "distilledAt"
+      ],
+      "properties": {
+        "sourceId": {"$ref": "#/$defs/kebab"},
+        "sourceTitle": {"type": "string", "minLength": 1},
+        "sourceRevision": {"type": "string", "minLength": 1},
+        "sourceLocator": {"type": "string", "minLength": 1},
+        "distilledAt": {"type": "string", "format": "date"}
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task",
+        "title",
+        "summary",
+        "applicability",
+        "normativeRequirements",
+        "exceptionsAndEscalation",
+        "provenance"
+      ],
+      "properties": {
+        "task": {"$ref": "#/$defs/kebab"},
+        "title": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "applicability": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/statement"}
+        },
+        "normativeRequirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/requirement"}
+        },
+        "exceptionsAndEscalation": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/statement"}
+        },
+        "provenance": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/provenance"}
+        }
+      }
+    }
+  }
+}

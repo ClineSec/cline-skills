@@ -1,0 +1,16 @@
+{
+  "contractVersion": "1.0",
+  "bundleId": "fictional-company-policy",
+  "bundleRevision": "sha256-b190b17a356c9428c5257e97",
+  "payloadRoot": "payload",
+  "routes": [
+    {
+      "task": "secure-coding",
+      "entrypoint": "guidance/secure-coding.md"
+    },
+    {
+      "task": "vulnerability-triage",
+      "entrypoint": "guidance/vulnerability-triage.md"
+    }
+  ]
+}

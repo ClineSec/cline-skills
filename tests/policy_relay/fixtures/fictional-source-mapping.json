@@ -1,0 +1,80 @@
+{
+  "contractVersion": "1.0",
+  "bundleId": "fictional-company-policy",
+  "ambiguities": [],
+  "routes": [
+    {
+      "task": "vulnerability-triage",
+      "title": "Vulnerability triage",
+      "summary": "assessing and routing a reported security finding",
+      "applicability": [
+        {
+          "text": "Apply when a suspected product or dependency vulnerability is reported.",
+          "sourceIds": ["fictional-vulnerability-response-standard"]
+        }
+      ],
+      "normativeRequirements": [
+        {
+          "force": "MUST",
+          "text": "record severity evidence and an accountable owner before changing status.",
+          "sourceIds": ["fictional-vulnerability-response-standard"]
+        },
+        {
+          "force": "SHOULD",
+          "text": "use the documented severity rubric consistently.",
+          "sourceIds": ["fictional-vulnerability-response-standard"]
+        }
+      ],
+      "exceptionsAndEscalation": [
+        {
+          "text": "If severity or ownership is uncertain, leave the finding open and escalate to the fictional product security lead.",
+          "sourceIds": ["fictional-vulnerability-response-standard"]
+        }
+      ]
+    },
+    {
+      "task": "secure-coding",
+      "title": "Secure coding",
+      "summary": "changing or reviewing application code at a trust boundary",
+      "applicability": [
+        {
+          "text": "Apply when code accepts untrusted input, handles credentials, or changes authorization behavior.",
+          "sourceIds": ["fictional-engineering-security-standard"]
+        }
+      ],
+      "normativeRequirements": [
+        {
+          "force": "MUST NOT",
+          "text": "embed secrets in source, fixtures, logs, or error messages.",
+          "sourceIds": ["fictional-engineering-security-standard"]
+        },
+        {
+          "force": "MUST",
+          "text": "include a negative authorization test for security-sensitive changes.",
+          "sourceIds": [
+            "fictional-engineering-security-standard",
+            "fictional-review-handbook"
+          ]
+        },
+        {
+          "force": "MUST",
+          "text": "validate untrusted values before using them at a trust boundary.",
+          "sourceIds": ["fictional-engineering-security-standard"]
+        }
+      ],
+      "exceptionsAndEscalation": [
+        {
+          "text": "An exception requires a named owner, rationale, compensating control, approving authority, and expiry.",
+          "sourceIds": [
+            "fictional-engineering-security-standard",
+            "fictional-review-handbook"
+          ]
+        },
+        {
+          "text": "If authority or policy meaning is uncertain, stop the affected change and escalate to the fictional security owner.",
+          "sourceIds": ["fictional-review-handbook"]
+        }
+      ]
+    }
+  ]
+}

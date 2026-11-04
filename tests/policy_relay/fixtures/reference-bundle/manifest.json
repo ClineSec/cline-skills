@@ -1,0 +1,16 @@
+{
+  "contractVersion": "1.0",
+  "bundleId": "fictional-policyrelay-reference",
+  "bundleRevision": "2026-08-27.1",
+  "payloadRoot": "payload",
+  "routes": [
+    {
+      "task": "secure-coding",
+      "entrypoint": "guidance/secure-coding.md"
+    },
+    {
+      "task": "vulnerability-triage",
+      "entrypoint": "guidance/vulnerability-triage.md"
+    }
+  ]
+}

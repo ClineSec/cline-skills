@@ -1,0 +1,12 @@
+{
+  "request": "Implement parse_redirect_target in src/redirects.py so a request-supplied redirect value is validated before it crosses the application trust boundary, and add a negative authorization test.",
+  "excludedRoutes": ["vulnerability-triage"],
+  "negativeRequests": [
+    "Correct spelling and line wrapping in the project README.",
+    "Assess and route a reported dependency vulnerability finding."
+  ],
+  "requiredGuidancePhrases": [
+    "untrusted input",
+    "negative authorization test"
+  ]
+}
