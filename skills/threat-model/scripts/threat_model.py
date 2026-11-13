@@ -196,6 +196,11 @@ SIDE_KEYS = {"source", "says", "evidence"}
 STEERING_KEYS = {"evidence", "effect", "handled", "leads"}
 
 
+def write_exact(path: Path, text: str, errors: str = "strict") -> None:
+    """Write UTF-8 with no newline translation: on Windows, text mode would corrupt Git's files and shift line numbers."""
+    path.write_bytes(text.encode("utf-8", errors))
+
+
 class Refused(Exception):
     """The helper will not proceed, and the reason is for the operator."""
 
@@ -416,15 +421,15 @@ def build_clean_view(gitdir: Path, view: Path) -> Path:
     objects = check_object_store(common)
     (view / "objects" / "info").mkdir(parents=True)
     (view / "refs").mkdir()
-    (view / "objects" / "info" / "alternates").write_text(f"{objects}\n", encoding="utf-8")
+    write_exact(view / "objects" / "info" / "alternates", f"{objects}\n")
     config = "[core]\n\trepositoryformatversion = 1\n\tbare = true\n" if sha256 else "[core]\n\trepositoryformatversion = 0\n\tbare = true\n"
     if sha256:
         config += "[extensions]\n\tobjectformat = sha256\n"
-    (view / "config").write_text(config, encoding="utf-8")
+    write_exact(view / "config", config)
     head = read_small(gitdir / "HEAD").strip()
     if not re.fullmatch(r"ref: refs/[^\s]+|[0-9a-f]{40}|[0-9a-f]{64}", head):
         raise Refused("the target's Git HEAD isn't readable.")
-    (view / "HEAD").write_text(head + "\n", encoding="utf-8")
+    write_exact(view / "HEAD", head + "\n")
     packed = read_small(common / "packed-refs", 256 * 1024 * 1024)
     if packed:
         kept, skipping = [], False
@@ -437,10 +442,10 @@ def build_clean_view(gitdir: Path, view: Path) -> Path:
             skipping = not line.startswith("#") and (name.startswith("refs/replace/") or name.count("/") < 2)
             if not skipping:
                 kept.append(line)
-        (view / "packed-refs").write_text("\n".join(kept) + "\n", encoding="utf-8")
+        write_exact(view / "packed-refs", "\n".join(kept) + "\n")
     shallow = read_small(common / "shallow")
     if shallow:
-        (view / "shallow").write_text(shallow, encoding="utf-8")
+        write_exact(view / "shallow", shallow)
     copy_loose_refs(common / "refs", view / "refs", "refs")
     if gitdir != common:
         copy_loose_refs(gitdir / "refs", view / "refs", "refs")
@@ -485,7 +490,7 @@ def copy_loose_refs(source: Path, destination: Path, prefix: str) -> None:
         elif child.is_file() and prefix != "refs":  # Git would prefer refs/x over refs/tags/x, so x can shadow a tag.
             value = read_small(child, 4096).strip()
             if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}|ref: refs/[^\s]+", value):
-                (destination / child.name).write_text(value + "\n", encoding="utf-8")
+                write_exact(destination / child.name, value + "\n")
 
 
 def run_git(view: Path, *args: str, stdin: bytes | None = None) -> bytes:
@@ -764,7 +769,7 @@ def mask(text: str) -> str:
 
 
 def write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    write_exact(path, json.dumps(value, indent=2, ensure_ascii=True) + "\n")
 
 
 def text_problem(value: Any, label: str, problems: list[str]) -> None:
@@ -977,9 +982,9 @@ def snapshot_repository(out: Path, manifest: dict[str, Any], args: argparse.Name
         lead["repo"] = name
     file_list = out / "files" / f"{name}.txt"
     file_list.parent.mkdir(exist_ok=True)
-    file_list.write_text("".join(f"{path}\n" for path in sorted(writer.written)), encoding="utf-8", errors="replace")
+    write_exact(file_list, "".join(f"{path}\n" for path in sorted(writer.written)), errors="replace")
     if history:
-        (out / "files" / f"{name}.history.txt").write_text(history, encoding="utf-8", errors="replace")
+        write_exact(out / "files" / f"{name}.history.txt", history, errors="replace")
     digest = digest_snapshot(snapshot)
     make_read_only(snapshot)
     entry: dict[str, Any] = {
@@ -1199,7 +1204,7 @@ def write_diagram(out: Path, data: dict[str, Any]) -> tuple[str, list[str]]:
     diagram = build_diagram(data)
     if len(diagram) > MAX_DIAGRAM_CHARS:
         return diagram, [f"the diagram is {len(diagram)} characters, more than most viewers will draw. Merge alike components or shorten metadata."]
-    (out / "diagram.mmd").write_text(diagram, encoding="utf-8")
+    write_exact(out / "diagram.mmd", diagram)
     return diagram, []
 
 
@@ -1244,7 +1249,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         return report_problems(problems)
     report = out / "threat-model.md"
     text = build_report(data, manifest, diagram)
-    report.write_text(text, encoding="utf-8", errors="replace")
+    write_exact(report, text, errors="replace")
     write_json(out / "threat-model.otm.json", build_otm(data))
     counts = open_counts(data["threats"])
     print("Wrote", report, f"({len(text) // 1024} KB) |", ", ".join(f"{counts[name]} {name} open" for name in SEVERITIES))

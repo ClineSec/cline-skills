@@ -404,6 +404,7 @@ class SuppressionTests(Case):
         self.assertIn("### S-001 `a.py:1`", self.report())
         self.assertIn("1 in 1 file(s)", self.report())
 
+    @unittest.skipIf(os.name == "nt", "Windows file names can't hold these characters")
     def test_a_hostile_file_name_is_escaped_in_the_summary(self) -> None:
         write(self.target, "a|b`c.py", "x = 1  # nosec\n")
         self.prepare()
